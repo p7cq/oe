@@ -1,0 +1,112 @@
+diff --git a/python/vyos/system/disk.py b/python/vyos/system/disk.py
+index 7ae9a15bb..f655bd0a8 100644
+--- a/python/vyos/system/disk.py
++++ b/python/vyos/system/disk.py
+@@ -40,10 +40,11 @@ def disk_cleanup(drive_path: str) -> None:
+         drive_path (str): path to a drive that needs to be cleaned
+     """
+     partitions: list[str] = partition_list(drive_path)
+-    for partition in partitions:
+-        run(f'wipefs -af {partition}')
+-    run(f'wipefs -af {drive_path}')
+-    run(f'sgdisk -Z {drive_path}')
++    part_count: int = len(partitions)
++    while part_count > 0:
++        run(f'sgdisk -gd {part_count} {drive_path}')
++        part_count -= 1
++    run(f'sgdisk -go {drive_path}')
+ 
+ 
+ def find_persistence() -> str:
+@@ -73,7 +74,7 @@ def parttable_create(drive_path: str, root_size: int) -> None:
+         root_size_text: str = '+100%'
+     else:
+         root_size_text: str = str(root_size)
+-    command = f'sgdisk -a1 -n1:2048:4095 -t1:EF02 -n2:4096:+256M -t2:EF00 \
++    command = f'sgdisk -a1 -n1:65536:+1M -t1:EF02 -n2:0:+256M -t2:EF00 \
+         -n3:0:+{root_size_text}K -t3:8300 {drive_path}'
+ 
+     run(command)
+diff --git a/python/vyos/system/image.py b/python/vyos/system/image.py
+index ed8a96fbb..d1868fea8 100644
+--- a/python/vyos/system/image.py
++++ b/python/vyos/system/image.py
+@@ -265,6 +265,9 @@ def is_live_boot() -> bool:
+         boot_type: str = running_image_result.groupdict().get('boot_type', '')
+         if boot_type == 'boot':
+             return False
++    # U-Boot boards lack BOOT_IMAGE= (GRUB-specific). Check vyos-union= as fallback.
++    if 'vyos-union=/boot/' in cmdline:
++        return False
+     return True
+ 
+ def if_not_live_boot(func):
+diff --git a/src/op_mode/image_installer.py b/src/op_mode/image_installer.py
+index cb3aa7b6c..982da3419 100755
+--- a/src/op_mode/image_installer.py
++++ b/src/op_mode/image_installer.py
+@@ -119,7 +119,7 @@
+ CONST_MIN_DISK_SIZE: int = 2147483648  # 2 GB
+ CONST_MIN_ROOT_SIZE: int = 1610612736  # 1.5 GB
+ # a reserved space: 2MB for header, 1 MB for BIOS partition, 256 MB for EFI
+-CONST_RESERVED_SPACE: int = (2 + 1 + 256) * 1024**2
++CONST_RESERVED_SPACE: int = (32 + 1 + 256) * 1024**2
+ 
+ # define directories and paths
+ DIR_CONFIG: str = directories['config']
+@@ -230,6 +230,7 @@ def create_partitions(target_disk: str, target_size: int,
+         rootfs_size: int = ask_root_size(available_size)
+     else:
+         rootfs_size: int = available_size
++    rootfs_size -= 32768
+ 
+     print(MSG_INFO_INSTALL_PARTITONING)
+     raid.clear()
+@@ -383,6 +384,13 @@ def ask_single_disk(disks_available: dict[str, int]) -> str:
+     """
+     print(MSG_INFO_INSTALL_DISKS_LIST)
+     default_disk: str = list(disks_available)[0]
++
++    # Default to eMMC (mmcblk)
++    for disk_name in disks_available:
++        if 'mmcblk' in disk_name:
++            default_disk = disk_name
++            break
++
+     for disk_name, disk_size in disks_available.items():
+         disk_size_human: str = bytes_to_gb(disk_size)
+         print(f'Drive: {disk_name} ({disk_size_human} GB)')
+@@ -993,6 +1001,33 @@ def install_image() -> None:
+         grub.set_default(image_name, DIR_DST_ROOT)
+         grub.set_console_type(console_dict[console_type], DIR_DST_ROOT)
+ 
++        # U-Boot: write vyos.env DIRECTLY to eMMC.
++        try:
++            vyos_env = Path(f'{DIR_DST_ROOT}/boot/vyos.env')
++            vyos_env.write_text(f'vyos_image={image_name}\n')
++        except Exception as e:
++            print(f'ERROR: unable to write vyos.env: {e}')
++            pass
++
++        # U-Boot boards: one-time bootloader env setup (fw_setenv).
++        # Pass --root so the script operates on the eMMC mount, not /.
++        # Errors are non-fatal — user can set up U-Boot manually.
++        postinstall = Path('/usr/local/bin/vyos-postinstall')
++        if postinstall.exists():
++            print('Configuring U-Boot for automatic eMMC boot...')
++            try:
++                rc = run(f'{postinstall} --root {DIR_DST_ROOT} {image_name}')
++                if rc != 0:
++                    print('WARNING: U-Boot configuration returned errors (non-fatal).')
++                    print('  You may need to set up U-Boot manually — see INSTALL.md.')
++            except Exception as e:
++                print(f'ERROR: vyos-postinstall failed: {e}')
++                # crit
++                pass
++        else:
++            print('ERROR: Unable to configure U-Boot')
++            # crit
++
+         if is_raid_install(install_target):
+             # add RAID specific modules
+             grub.modules_write(f'{DIR_DST_ROOT}/{grub.CFG_VYOS_MODULES}',

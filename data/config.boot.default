@@ -1,0 +1,127 @@
+system {
+    host-name mono
+    login {
+        banner {
+            pre-login "\n:: VyOS for NXP LS1046A (Mono Gateway) ::\n"
+        }
+        user vyos {
+            authentication {
+                encrypted-password $y$j9T$Rq06TVkTBOm.Xw0dNcvvd0$U73QHmRbKcnEQbQU90YTj9TZDDuIvCyakm25928fqn9
+            }
+        }
+    }
+    option {
+        kernel {
+            memory {
+                hugepage-size 2M {
+                    hugepage-count 512
+                }
+            }
+        }
+        performance network-latency
+        reboot-on-panic
+        reboot-on-upgrade-failure 5
+        time-format 24-hour
+    }
+    syslog {
+        global {
+            facility all {
+                level info
+            }
+            facility local7 {
+                level debug
+            }
+        }
+    }
+    console {
+        device ttyS0 {
+            speed 115200
+        }
+    }
+    config-management {
+        commit-revisions 100
+    }
+    update-check {
+        auto-check
+        url https://raw.githubusercontent.com/p7cq/octo-enigma/refs/heads/master/version.json
+    }
+    watchdog {
+        reboot-timeout 60
+        shutdown-timeout 60
+    }
+}
+
+interfaces {
+    ethernet eth0 {
+        address dhcp
+        description "RJ45 Left"
+        offload {
+            gro
+            gso
+            rfs
+            rps
+            sg
+        }
+    }
+    ethernet eth1 {
+        address dhcp
+        description "RJ45 Right"
+        offload {
+            gro
+            gso
+            rfs
+            rps
+            sg
+        }
+    }
+    ethernet eth2 {
+        address dhcp
+        description "RJ45 Center"
+        offload {
+            gro
+            gso
+            rfs
+            rps
+            sg
+        }
+    }
+    ethernet eth3 {
+        address dhcp
+        description "SFP+ Left"
+        mtu 3290
+        offload {
+            gro
+            gso
+            sg
+        }
+    }
+    ethernet eth4 {
+        address dhcp
+        description "SFP+ Right"
+        mtu 3290
+        offload {
+            gro
+            gso
+            sg
+        }
+    }
+    loopback lo {
+    }
+}
+
+service {
+    ntp {
+        server 0.pool.ntp.org {
+        }
+        server 1.pool.ntp.org {
+        }
+        server 2.pool.ntp.org {
+        }
+        server 3.pool.ntp.org {
+        }
+    }
+    ssh {
+        disable-password-authentication
+    }
+}
+

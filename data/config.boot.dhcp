@@ -1,0 +1,70 @@
+system {
+    host-name mono
+    login {
+        banner {
+            pre-login "\n:: VyOS for NXP LS1046A (Mono Gateway) ::\n"
+        }
+        user vyos {
+            authentication {
+                encrypted-password "$6$rounds=656000$Uh9Fx/JsPWFTpfIO$DPQOFL8ThwtckZOrIEbGMwj6WNZnxV3ZfS/UuxuONg0oMpEDR350YkkYOdjcZWpsB9K1XHrOmBFtI34usaqvs."
+            }
+        }
+    }
+    option {
+        performance network-latency
+        reboot-on-panic
+        reboot-on-upgrade-failure 5
+        time-format 24-hour
+    }
+    syslog {
+        global {
+            facility all {
+                level info
+            }
+            facility local7 {
+                level debug
+            }
+        }
+    }
+    console {
+        device ttyS0 {
+            speed 115200
+        }
+    }
+    config-management {
+        commit-revisions 100
+    }
+    update-check {
+        auto-check
+        url https://raw.githubusercontent.com/p7cq/octo-enigma/refs/heads/master/version.json
+    }
+    watchdog {
+        reboot-timeout 60
+        shutdown-timeout 60
+    }
+}
+
+interfaces {
+    ethernet eth0 {
+        address dhcp
+        description "MGMT (leftmost RJ45)"
+    }
+    loopback lo {
+    }
+}
+
+service {
+    ntp {
+        server 0.pool.ntp.org {
+        }
+        server 1.pool.ntp.org {
+        }
+        server 2.pool.ntp.org {
+        }
+        server 3.pool.ntp.org {
+        }
+    }
+    ssh {
+        disable-password-authentication
+    }
+}

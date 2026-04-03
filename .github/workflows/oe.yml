@@ -1,0 +1,304 @@
+name: oe
+
+on:
+  schedule:
+    - cron: "0 1 * * 5"
+
+  workflow_dispatch:
+    inputs:
+      BUILD_BY:
+        description: 'p7cq'
+        default: ''
+      build_version:
+        description: 'Version number (default: YYYY.MM.DD-TIMESTAMP-rolling)'
+        default: ''
+      builder_image:
+        description: 'Builder image (default: ghcr.io/p7cq/octo-enigma/oe-builder:current-arm64, official: docker.io/vyos/vyos-build:current-arm64)'
+        default: ''
+
+env:
+  DEBIAN_MIRROR: http://deb.debian.org/debian/
+  DEBIAN_SECURITY_MIRROR: http://deb.debian.org/debian-security
+  VYOS_MIRROR: https://packages.vyos.net/repositories/current/
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: write
+    container:
+      image: ${{ github.event.inputs.builder_image || 'ghcr.io/p7cq/octo-enigma/oe-builder:current-arm64' }}
+      options: --sysctl net.ipv6.conf.lo.disable_ipv6=0 --privileged --user root
+    defaults:
+      run:
+        shell: bash
+    outputs:
+      BUILD_BY: ${{ steps.set_env_variables.outputs.BUILD_BY }}
+      build_version: ${{ steps.set_env_variables.outputs.build_version }}
+      TIMESTAMP: ${{ steps.set_env_variables.outputs.TIMESTAMP }}
+      PREVIOUS_SUCCESS_BUILD_TIMESTAMP: ${{ steps.set_env_variables.outputs.PREVIOUS_SUCCESS_BUILD_TIMESTAMP }}
+      mono_image_iso: ${{ steps.build.outputs.mono_image_iso }}
+      mono_image_name: ${{ steps.build.outputs.mono_image_name }}
+
+    steps:
+      - name: Install Dependencies
+        run: |
+          source <(sed -n '/enable programmable completion/,$p' /etc/skel/.bashrc)
+          set -ex
+          echo "HOME: $HOME"
+          echo "PATH: $PATH"
+          command -v go
+          command -v opam
+          lscpu
+          free -m
+          apt-get update -qq
+          apt-get install -y \
+            libsystemd-dev libglib2.0-dev libip4tc-dev libipset-dev libnfnetlink-dev \
+            libnftnl-dev libnl-nf-3-dev libpopt-dev libpcap-dev libbpf-dev \
+            bubblewrap git-lfs kpartx clang llvm cmake \
+            protobuf-compiler python3-cracklib python3-protobuf \
+            libreadline-dev liblua5.3-dev byacc flex \
+            dosfstools mtools zstd u-boot-tools
+          apt-get upgrade -y
+
+      - uses: actions/checkout@v6
+        with:
+          lfs: true
+      - name: "Initialization: set env variables"
+        id: set_env_variables
+        run: |
+          source <(sed -n '/enable programmable completion/,$p' /etc/skel/.bashrc)
+          set -ex
+          if [ -n "${{ github.event.inputs.BUILD_BY }}" ]; then
+            echo "BUILD_BY=${{ github.event.inputs.BUILD_BY }}" >> $GITHUB_ENV
+            echo "BUILD_BY=${{ github.event.inputs.BUILD_BY }}" >> $GITHUB_OUTPUT
+          else
+            echo "BUILD_BY=${{ github.repository_owner_id }}+${{ github.repository_owner }}@users.noreply.github.com" >> $GITHUB_ENV
+            echo "BUILD_BY=${{ github.repository_owner_id }}+${{ github.repository_owner }}@users.noreply.github.com" >> $GITHUB_OUTPUT
+          fi
+          if [ -z "${{ github.event.inputs.build_version }}" ]; then
+            echo "build_version=$(date -u +%Y.%m.%d-%H%M)-rolling" >> $GITHUB_OUTPUT
+          else
+            echo "build_version=${{ github.event.inputs.build_version }}" >> $GITHUB_OUTPUT
+          fi
+          echo "TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
+          echo "PREVIOUS_SUCCESS_BUILD_TIMESTAMP=$(cat version.json | jq -r '.[0].timestamp')" >> $GITHUB_OUTPUT
+
+      - name: Checkout vyos-build repo
+        uses: actions/checkout@v6
+        with:
+          repository: vyos/vyos-build
+          path: vyos-build
+
+      - name: Fix vyos-build
+        env:
+          MOK_KEY: ${{ secrets.MOK_KEY }}
+          MINISIGN_PRIVATE_KEY: ${{ secrets.MINISIGN_PRIVATE_KEY }}
+        run: |
+          [ -n "$MOK_KEY" ] && echo "$MOK_KEY" > data/mok/MOK.key
+          [ -n "$MINISIGN_PRIVATE_KEY" ] && echo "$MINISIGN_PRIVATE_KEY" > data/oe.minisign.key
+          source <(sed -n '/enable programmable completion/,$p' /etc/skel/.bashrc)
+          set -ex
+
+          ### vyos-1x
+          # IMPORTANT: build.py does `git checkout current` which reverts any direct
+          # patches applied to the cloned repo. We use pre_build_hook to apply patches
+          # AFTER checkout, before dpkg-buildpackage.
+          VYOS1X_BUILD=vyos-build/scripts/package-build/vyos-1x
+          # VYOS1X_PATCH_DIR="$VYOS1X_BUILD/vyos-1x-patches"
+          # mkdir -p "$VYOS1X_PATCH_DIR"
+          # cp data/vyos-1x-*.patch "$PATCH_STAGING"
+          # cp data/reftree.cache "$VYOS1X_PATCH_DIR"
+          cat > "$VYOS1X_BUILD/package.toml" <<'EOF'
+          [[packages]]
+          name = "vyos-1x"
+          commit_id = "mono-gw"
+          scm_url = "https://github.com/p7cq/vyos-1x.git"
+          EOF
+
+          ### vyos-build
+          cp data/config.boot.default vyos-build/data/live-build-config/includes.chroot/opt/vyatta/etc/
+          cp data/config.boot.dhcp vyos-build/data/live-build-config/includes.chroot/opt/vyatta/etc/
+          patch --no-backup-if-mismatch -p1 -d vyos-build < data/vyos-build-005-add_vim_link.patch
+          patch --no-backup-if-mismatch -p1 -d vyos-build < data/vyos-build-007-no_sbsign.patch
+
+          ### LSI1046A console
+          sed -i 's/ttyAMA0/ttyS0/g' \
+            vyos-build/data/live-build-config/hooks/live/01-live-serial.binary \
+            vyos-build/data/live-build-config/includes.chroot/opt/vyatta/etc/grub/default-union-grub-entry \
+            2>/dev/null || true
+
+          if [ -f data/mok/MOK.key ]; then
+            cp data/mok/MOK.key vyos-build/data/certificates/vyos-dev-2025-linux.key
+            cp data/mok/MOK.pem vyos-build/data/certificates/vyos-dev-2025-linux.pem
+          fi
+
+          # add minisign pubkey
+          cp data/oe.minisign.pub vyos-build/data/live-build-config/includes.chroot/usr/share/vyos/keys/
+
+      - name: Build Image Packages
+        run: |
+          cd vyos-build/scripts/package-build
+          source <(sed -n '/enable programmable completion/,$p' /etc/skel/.bashrc)
+          set -ex
+          packages="vyos-1x"
+          ignore_packages=(amazon-cloudwatch-agent amazon-ssm-agent xen-guest-agent)
+          for package in $packages; do
+            [ ! -d $package ] && continue
+            [[ " ${ignore_packages[@]} " =~ " ${package} " ]] && continue
+            cd $package
+
+            [ $package == "keepalived" ] && apt-get install -y libsnmp-dev
+
+            ./build.py
+
+            [ $package == "keepalived" ] && apt-get remove -y libsnmp-dev
+
+            # clean
+            df -Th
+            apt-get autoremove -y
+            rm -rf $package *.gz *.xz $HOME/.cache/go-build $HOME/go/pkg/mod $HOME/.rustup
+            df -Th
+            cd ..
+          done
+
+      - name: Pick Packages
+        run: |
+          cd vyos-build
+          source <(sed -n '/enable programmable completion/,$p' /etc/skel/.bashrc)
+          deb_files=$(find scripts/package-build -name "*.deb" -type f | \
+            grep -v -- -dbg | \
+            grep -v -- -dev | \
+            grep -v -- -doc
+          )
+          ignore_packages=(
+            charon-cmd
+            dropbear-initramfs
+            dropbear-run
+            eapoltest
+            frr-test-tools
+            isc-dhcp-client-ddns
+            isc-dhcp-common
+            isc-dhcp-keama
+            isc-dhcp-server
+            isc-dhcp-server-ldap
+            libnetsnmptrapd40
+            libsnmp-perl
+            libtac2-bin
+            libyang-modules
+            libyang-tools
+            # python3-nftables
+            rtr-tools
+            sflowovsd.deb
+            snmptrapd
+            strongswan-nm
+            strongswan-pki
+            tkmib
+            vim-tiny
+            waagent
+            wide-dhcpv6-relay
+            wide-dhcpv6-server
+            vpp-plugin-devtools
+            accel-ppp
+          )
+          for deb_file in $deb_files; do
+            if [[ " ${ignore_packages[@]} " =~ " $(basename $deb_file | cut -d_ -f1) " ]]; then
+              echo "ignore $deb_file"
+              continue
+            fi
+            cp $deb_file packages
+          done
+          ls -alh packages
+
+      - name: Archive Packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: vyos-packages
+          path: vyos-build/packages/
+          retention-days: 30
+          compression-level: 0
+
+      - name: Build image
+        id: build
+        run: |
+          cd vyos-build
+          source <(sed -n '/enable programmable completion/,$p' /etc/skel/.bashrc)
+          set -ex
+
+          rm -rf packages/linux-headers-*
+
+          ./build-vyos-image \
+            --architecture arm64 \
+            --build-by $BUILD_BY \
+            --build-type release \
+            --debian-mirror $DEBIAN_MIRROR \
+            --debian-security-mirror $DEBIAN_SECURITY_MIRROR \
+            --version ${{ steps.set_env_variables.outputs.build_version }} \
+            --vyos-mirror $VYOS_MIRROR \
+            --custom-package vim \
+            --custom-package fastnetmon \
+            --custom-package mokutil \
+            --custom-package sbsigntool \
+            --custom-package grub-efi-arm64-signed \
+            --custom-package shim-signed \
+            --custom-package u-boot-tools \
+            --custom-package libubootenv-tool \
+            --custom-package mtd-utils \
+            generic
+          cd build
+          # Determine image name and iso file
+          mono_image_name=$(jq --raw-output .artifacts[0] manifest.json | sed -e 's/.iso//')
+          mono_image_name=${mono_image_name/generic/mono}
+          mono_image_iso=$(jq --raw-output .artifacts[0] manifest.json)
+          mono_image_iso=${mono_image_iso/generic/mono}
+          echo "mono_image_name=${mono_image_name}" >> $GITHUB_OUTPUT
+          echo "mono_image_iso=${mono_image_iso}" >> $GITHUB_OUTPUT
+          # Cryptographically sign the image
+          MINISIGN_PUBKEY_FILE=$GITHUB_WORKSPACE/data/octo-enigma.minisign.pub
+          MINISIGN_SECKEY_FILE=$GITHUB_WORKSPACE/data/octo-enigma.minisign.key
+          if [ -f "$MINISIGN_SECKEY_FILE" ]; then
+            $GITHUB_WORKSPACE/bin/minisign -s $MINISIGN_SECKEY_FILE -Sm ${mono_image_iso}
+            $GITHUB_WORKSPACE/bin/minisign -Vm ${mono_image_iso} -x ${mono_image_iso}.minisig -p $MINISIGN_PUBKEY_FILE
+          else
+            # create a non-zero file to indicate failure
+            echo "fake sign" > ${mono_image_iso}.minisig
+          fi
+          ### Create FAT32 USB boot image
+          mono_usb_img="${mono_image_name}-usb.img"
+          mkdir -p /tmp/iso-mount
+          mount -o loop "$mono_image_iso" /tmp/iso-mount
+          truncate -s 4G "$mono_usb_img"
+          mkdosfs -F 32 -n VYOSBOOT "$mono_usb_img"
+          mmd   -i "$mono_usb_img" ::/live
+          mcopy -i "$mono_usb_img" /tmp/iso-mount/live/vmlinuz             ::/live/vmlinuz
+          mcopy -i "$mono_usb_img" /tmp/iso-mount/live/initrd.img          ::/live/initrd.img
+          mcopy -i "$mono_usb_img" /tmp/iso-mount/live/filesystem.squashfs ::/live/filesystem.squashfs
+          mcopy -i "$mono_usb_img" $GITHUB_WORKSPACE/data/dtb/mono-gw.dtb  ::mono-gw.dtb
+
+          # Generate U-Boot boot script (boot.scr) — loads kernel/DTB/initrd from USB FAT32
+          # and boots directly. Does NOT modify U-Boot environment or SPI flash.
+          # eMMC boot setup is handled by vyos-postinstall after install image.
+          # Source: data/scripts/boot.cmd (compiled with mkimage)
+          mkimage -A arm64 -T script -C none -n "Mono USB Boot" \
+            -d "$GITHUB_WORKSPACE/data/scripts/boot.cmd" /tmp/boot.scr
+          mcopy -i "$mono_usb_img" /tmp/boot.scr ::boot.scr
+
+          umount /tmp/iso-mount
+
+          # Compress USB image — raw 4 GiB FAT32 (mostly zeros) exceeds GitHub's
+          # 2 GiB release asset limit. zstd -19 shrinks it to ~800 MB.
+          # Decompress before writing to USB: zstd -d vyos-*-usb.img.zst
+          zstd -T0 -19 --rm "${mono_usb_img}"
+          mono_usb_img="${mono_usb_img}.zst"
+
+          if [ -f "$MINISIGN_SECKEY_FILE" ]; then
+            $GITHUB_WORKSPACE/bin/minisign -s $MINISIGN_SECKEY_FILE -Sm "${mono_usb_img}"
+            $GITHUB_WORKSPACE/bin/minisign -Vm "${mono_usb_img}" -x "${mono_usb_img}.minisig" -p $MINISIGN_PUBKEY_FILE
+          else
+            echo "fake sign" > "${mono_usb_img}.minisig"
+          fi
+          echo "usb_img=${mono_usb_img}" >> $GITHUB_OUTPUT
+
+          # Move artifacts to workspace to avoid nested path in artifact archive
+          mv manifest.json ${mono_usb_img} ${mono_usb_img}.minisig \
+            ${mono_image_iso} ${mono_image_iso}.minisig $GITHUB_WORKSPACE

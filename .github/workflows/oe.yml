@@ -250,12 +250,11 @@ jobs:
             generic
           cd build
           # Determine image name and iso file
-          ARTIFACT_NAME="$(jq --raw-output .artifacts[0] manifest.json)"
-          # IMAGE_NAME=$(jq --raw-output .artifacts[0] manifest.json | sed -e 's/.iso//')
-          IMAGE_NAME=${ARTIFACT_NAME%.iso}
-          IMAGE_NAME="${IMAGE_NAME/generic/mono}"
+          cat manifest.json
+          ARTIFACT="$(jq --raw-output .artifacts[0] manifest.json)"
+          IMAGE_NAME=$(echo ${ARTIFACT} | sed 's/generic/mono/;s/\.iso//')
           IMAGE_ISO="${IMAGE_NAME}.iso"
-          mv "$(jq --raw-output .artifacts[0] manifest.json)" "${IMAGE_ISO}"
+          mv "${ARTIFACT}" "${IMAGE_ISO}"
           echo "mono_image_name=${IMAGE_NAME}" >> $GITHUB_OUTPUT
           echo "mono_image_iso=${IMAGE_ISO}" >> $GITHUB_OUTPUT
           # Cryptographically sign the image

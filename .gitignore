@@ -1,0 +1,4 @@
+vyos-build/
+vyos-1x/
+data/mok/MOK.key
+data/oe.minisign.key

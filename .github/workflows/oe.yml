@@ -62,9 +62,11 @@ jobs:
             dosfstools mtools zstd u-boot-tools
           apt-get upgrade -y
 
-      - uses: actions/checkout@v6
+      - name: Set LFS
+        uses: actions/checkout@v6
         with:
           lfs: true
+
       - name: "Initialization: set env variables"
         id: set_env_variables
         run: |
@@ -91,7 +93,7 @@ jobs:
           repository: vyos/vyos-build
           path: vyos-build
 
-      - name: Fix vyos-build
+      - name: Patch vyos-build
         env:
           MOK_KEY: ${{ secrets.MOK_KEY }}
           MINISIGN_PRIVATE_KEY: ${{ secrets.MINISIGN_PRIVATE_KEY }}
@@ -248,9 +250,12 @@ jobs:
             generic
           cd build
           # Determine image name and iso file
-          IMAGE_NAME=$(jq --raw-output .artifacts[0] manifest.json | sed -e 's/.iso//')
+          ARTIFACT_NAME="$(jq --raw-output .artifacts[0] manifest.json)"
+          # IMAGE_NAME=$(jq --raw-output .artifacts[0] manifest.json | sed -e 's/.iso//')
+          IMAGE_NAME=${ARTIFACT_NAME%.iso}
           IMAGE_NAME="${IMAGE_NAME/generic/mono}"
           IMAGE_ISO="${IMAGE_NAME}.iso"
+          mv "$(jq --raw-output .artifacts[0] manifest.json)" "${IMAGE_ISO}"
           echo "mono_image_name=${IMAGE_NAME}" >> $GITHUB_OUTPUT
           echo "mono_image_iso=${IMAGE_ISO}" >> $GITHUB_OUTPUT
           # Cryptographically sign the image

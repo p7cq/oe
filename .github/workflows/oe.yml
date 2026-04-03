@@ -22,7 +22,7 @@ env:
   VYOS_MIRROR: https://packages.vyos.net/repositories/current/
 
 jobs:
-  build:
+  build_iso:
     runs-on: ubuntu-24.04-arm
     permissions:
       contents: write
@@ -37,9 +37,9 @@ jobs:
       build_version: ${{ steps.set_env_variables.outputs.build_version }}
       TIMESTAMP: ${{ steps.set_env_variables.outputs.TIMESTAMP }}
       PREVIOUS_SUCCESS_BUILD_TIMESTAMP: ${{ steps.set_env_variables.outputs.PREVIOUS_SUCCESS_BUILD_TIMESTAMP }}
-      mono_image_name: ${{ steps.build.outputs.mono_image_name }}
-      mono_image_iso: ${{ steps.build.outputs.mono_image_iso }}
-      mono_image_usb: ${{ steps.build.outputs.mono_image_usb }}
+      mono_image_name: ${{ steps.build_iso.outputs.mono_image_name }}
+      mono_image_iso: ${{ steps.build_iso.outputs.mono_image_iso }}
+      mono_image_usb: ${{ steps.build_iso.outputs.mono_image_usb }}
 
     steps:
       - name: Install Dependencies
@@ -219,8 +219,8 @@ jobs:
           retention-days: 30
           compression-level: 0
 
-      - name: Build image
-        id: build
+      - name: Build ISO image
+        id: build_iso
         run: |
           cd vyos-build
           source <(sed -n '/enable programmable completion/,$p' /etc/skel/.bashrc)
@@ -249,7 +249,8 @@ jobs:
           cd build
           # Determine image name and iso file
           IMAGE_NAME=$(jq --raw-output .artifacts[0] manifest.json | sed -e 's/.iso//')
-          IMAGE_ISO=$(jq --raw-output .artifacts[0] manifest.json)
+          IMAGE_NAME="${IMAGE_NAME/generic/mono}"
+          IMAGE_ISO="${IMAGE_NAME}.iso"
           echo "mono_image_name=${IMAGE_NAME}" >> $GITHUB_OUTPUT
           echo "mono_image_iso=${IMAGE_ISO}" >> $GITHUB_OUTPUT
           # Cryptographically sign the image
@@ -267,41 +268,174 @@ jobs:
           # Linux/macOS: dd if=vyos-*-usb.img of=/dev/sdX bs=4M
           # Windows: Rufus → select .img → DD Image mode (NOT ISO mode)
           # Layout: /live/{vmlinuz,initrd.img,filesystem.squashfs} + /mono-gw.dtb + /boot.scr
-          USB_IMG="${IMAGE_NAME}-usb.img"
+          IMAGE_USB="${IMAGE_NAME}-usb.img"
           mkdir -p /tmp/iso-mount
           mount -o loop "$IMAGE_ISO" /tmp/iso-mount
-          truncate -s 4G "$USB_IMG"
-          mkdosfs -F 32 -n VYOSBOOT "$USB_IMG"
-          mmd   -i "$USB_IMG" ::/live
-          mcopy -i "$USB_IMG" /tmp/iso-mount/live/vmlinuz             ::/live/vmlinuz
-          mcopy -i "$USB_IMG" /tmp/iso-mount/live/initrd.img          ::/live/initrd.img
-          mcopy -i "$USB_IMG" /tmp/iso-mount/live/filesystem.squashfs ::/live/filesystem.squashfs
-          mcopy -i "$USB_IMG" $GITHUB_WORKSPACE/data/dtb/mono-gw.dtb  ::mono-gw.dtb
+          truncate -s 4G "$IMAGE_USB"
+          mkdosfs -F 32 -n BOOT "$IMAGE_USB"
+          mmd   -i "$IMAGE_USB" ::/live
+          mcopy -i "$IMAGE_USB" /tmp/iso-mount/live/vmlinuz             ::/live/vmlinuz
+          mcopy -i "$IMAGE_USB" /tmp/iso-mount/live/initrd.img          ::/live/initrd.img
+          mcopy -i "$IMAGE_USB" /tmp/iso-mount/live/filesystem.squashfs ::/live/filesystem.squashfs
+          mcopy -i "$IMAGE_USB" $GITHUB_WORKSPACE/data/dtb/mono-gw.dtb  ::mono-gw.dtb
 
           # Generate U-Boot boot script (boot.scr) — loads kernel/DTB/initrd from USB FAT32
           # and boots directly. Does NOT modify U-Boot environment or SPI flash.
           # eMMC boot setup is handled by vyos-postinstall after install image.
           # Source: data/scripts/boot.cmd (compiled with mkimage)
-          mkimage -A arm64 -T script -C none -n "VyOS LS1046A USB Boot" \
+          mkimage -A arm64 -T script -C none -n "Mono USB Boot" \
             -d "$GITHUB_WORKSPACE/data/scripts/boot.cmd" /tmp/boot.scr
-          mcopy -i "$USB_IMG" /tmp/boot.scr ::boot.scr
+          mcopy -i "$IMAGE_USB" /tmp/boot.scr ::boot.scr
 
           umount /tmp/iso-mount
 
           # Compress USB image — raw 4 GiB FAT32 (mostly zeros) exceeds GitHub's
           # 2 GiB release asset limit. zstd -19 shrinks it to ~800 MB.
           # Decompress before writing to USB: zstd -d vyos-*-usb.img.zst
-          zstd -T0 -19 --rm "${USB_IMG}"
-          USB_IMG="${USB_IMG}.zst"
+          zstd -T0 -19 --rm "${IMAGE_USB}"
+          IMAGE_USB="${IMAGE_USB}.zst"
 
           if [ -f "$MINISIGN_SECKEY_FILE" ]; then
-            $GITHUB_WORKSPACE/bin/minisign -s $MINISIGN_SECKEY_FILE -Sm "${USB_IMG}"
-            $GITHUB_WORKSPACE/bin/minisign -Vm "${USB_IMG}" -x "${USB_IMG}.minisig" -p $MINISIGN_PUBKEY_FILE
+            $GITHUB_WORKSPACE/bin/minisign -s $MINISIGN_SECKEY_FILE -Sm "${IMAGE_USB}"
+            $GITHUB_WORKSPACE/bin/minisign -Vm "${IMAGE_USB}" -x "${IMAGE_USB}.minisig" -p $MINISIGN_PUBKEY_FILE
           else
-            echo "fake sign" > "${USB_IMG}.minisig"
+            echo "fake sign" > "${IMAGE_USB}.minisig"
           fi
-          echo "mono_image_usb=${USB_IMG}" >> $GITHUB_OUTPUT
+          echo "mono_image_usb=${IMAGE_USB}" >> $GITHUB_OUTPUT
 
           # Move artifacts to workspace to avoid nested path in artifact archive
-          mv manifest.json ${USB_IMG} ${USB_IMG}.minisig \
+          mv manifest.json ${IMAGE_USB} ${IMAGE_USB}.minisig \
             ${IMAGE_ISO} ${IMAGE_ISO}.minisig $GITHUB_WORKSPACE
+
+  publish:
+    needs:
+      - build_iso
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    # if: github.ref_name == "${{ github.event.repository.default_branch }}"
+    if: github.ref_name == 'master'
+    steps:
+      - uses: actions/checkout@v6
+      - name: Clone vyos-build repo
+        uses: actions/checkout@v6
+        with:
+          repository: vyos/vyos-build
+          path: vyos-build
+          fetch-depth: 0
+      - name: Clone vyos-1x source code
+        uses: actions/checkout@v6
+        with:
+          repository: vyos/vyos-1x
+          path: vyos-1x
+          fetch-depth: 0
+      - id: commit_ids
+        name: Get commit IDs for changelog
+        run: |
+          set -ex
+          cd vyos-build
+          git log --since "${{ needs.build_iso.outputs.PREVIOUS_SUCCESS_BUILD_TIMESTAMP }}" --format="%H" --reverse
+          CHANGELOG_COMMIT_VYOS_BUILD=$(git log --since "${{ needs.build_iso.outputs.PREVIOUS_SUCCESS_BUILD_TIMESTAMP }}" --format="%H" --reverse | head -n1)
+          [ -z "$CHANGELOG_COMMIT_VYOS_BUILD" ] && CHANGELOG_COMMIT_VYOS_BUILD="HEAD"
+          echo "CHANGELOG_COMMIT_VYOS_BUILD=${CHANGELOG_COMMIT_VYOS_BUILD}" >> $GITHUB_OUTPUT
+          cd ../vyos-1x
+          git log --since "${{ needs.build_iso.outputs.PREVIOUS_SUCCESS_BUILD_TIMESTAMP }}" --format="%H" --reverse
+          CHANGELOG_COMMIT_VYOS_1X=$(git log --since "${{ needs.build_iso.outputs.PREVIOUS_SUCCESS_BUILD_TIMESTAMP }}" --format="%H" --reverse | head -n1)
+          [ -z "$CHANGELOG_COMMIT_VYOS_1X" ] && CHANGELOG_COMMIT_VYOS_1X="HEAD"
+          echo "CHANGELOG_COMMIT_VYOS_1X=${CHANGELOG_COMMIT_VYOS_1X}" >> $GITHUB_OUTPUT
+
+      - name: "Release publishing: generate changelog for vyos-1x"
+        id: generate_changelog_for_vyos-1x
+        uses: mikepenz/release-changelog-builder-action@v6.1.1
+        with:
+          owner: "vyos"
+          repo: "vyos-1x"
+          fetchReviewers: false
+          fromTag: ${{ steps.commit_ids.outputs.CHANGELOG_COMMIT_VYOS_1X }}
+          toTag: HEAD
+          configurationJson: |
+            {
+              "categories": [{"title": "", "labels": []}],
+              "template": "#{{CHANGELOG}}",
+              "pr_template": "- #{{TITLE}}\n   - PR: vyos/vyos-1x##{{NUMBER}}"
+            }
+
+      - name: "Release publishing: generate changelog for vyos-build"
+        id: generate_changelog_for_vyos-build
+        uses: mikepenz/release-changelog-builder-action@v6.1.1
+        with:
+          owner: "vyos"
+          repo: "vyos-build"
+          fetchReviewers: false
+          fromTag: ${{ steps.commit_ids.outputs.CHANGELOG_COMMIT_VYOS_BUILD }}
+          toTag: HEAD
+          configurationJson: |
+            {
+              "categories": [{"title": "", "labels": []}],
+              "template": "#{{CHANGELOG}}",
+              "pr_template": "- #{{TITLE}}\n   - PR: vyos/vyos-build##{{NUMBER}}"
+            }
+
+      - name: "Release publishing: generate CHANGELOG.md"
+        run: |
+          cat <<EOF > CHANGELOG.md
+          ## vyos-1x
+          ${{ steps.generate_changelog_for_vyos-1x.outputs.changelog }}
+          ## vyos-build
+          ${{ steps.generate_changelog_for_vyos-build.outputs.changelog }}
+          EOF
+          cat CHANGELOG.md
+
+      - name: "Release publishing: create version.json"
+        uses: jsdaniell/create-json@v1.2.3
+        with:
+          name: "version.json"
+          json: |
+            [
+              {
+                "url": "https://github.com/${{ github.repository }}/releases/download/${{ needs.build_iso.outputs.build_version }}/${{ needs.build_iso.outputs.mono_image_iso }}",
+                "version": "${{ needs.build_iso.outputs.build_version }}",
+                "timestamp": "${{ needs.build_iso.outputs.TIMESTAMP }}"
+              }
+            ]
+
+      - name: "Release publishing: check if the repository was modified during runtime to prevent autocommit failure"
+        id: check_if_the_repository_was_modified_during_runtime
+        run: |
+          sudo chown -R $(whoami):$(whoami) ./*
+          git pull --autostash --rebase
+          # Save version.json (modified by create-json step), pull latest, restore
+          # cp version.json /tmp/version.json.new
+          # git checkout -- version.json 2>/dev/null || true
+          # git pull --rebase || true
+          # cp /tmp/version.json.new version.json
+
+      - name: "Release publishing: create autocommit and tag"
+        uses: stefanzweifel/git-auto-commit-action@v7
+        with:
+          tagging_message: ${{ needs.build_iso.outputs.build_version }}
+          commit_message: ${{ needs.build_iso.outputs.build_version }}
+          commit_author: "github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.build_iso.outputs.mono_image_name }}
+
+      - name: "Release publishing: publish release"
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: CHANGELOG.md
+          tag_name: ${{ needs.build_iso.outputs.build_version }}
+          fail_on_unmatched_files: true
+          files: |
+            ${{ needs.build_iso.outputs.mono_image_iso }}
+            ${{ needs.build_iso.outputs.mono_image_iso }}.minisig
+            vyos-*-usb.img.zst
+            vyos-*-usb.img.zst.minisig
+
+      - uses: dev-drprasad/delete-older-releases@v0.3.4
+        with:
+          keep_latest: 10
+          delete_tags: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

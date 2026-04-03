@@ -250,7 +250,6 @@ jobs:
             generic
           cd build
           # Determine image name and iso file
-          cat manifest.json
           ARTIFACT="$(jq --raw-output .artifacts[0] manifest.json)"
           IMAGE_NAME=$(echo ${ARTIFACT} | sed 's/generic/mono/;s/\.iso//')
           IMAGE_ISO="${IMAGE_NAME}.iso"
@@ -311,6 +310,18 @@ jobs:
           mv manifest.json ${IMAGE_USB} ${IMAGE_USB}.minisig \
             ${IMAGE_ISO} ${IMAGE_ISO}.minisig $GITHUB_WORKSPACE
 
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.build_iso.outputs.mono_image_name }}
+          path: |
+            manifest.json
+            ${{ steps.build_iso.outputs.mono_image_iso }}
+            ${{ steps.build_iso.outputs.mono_image_iso }}.minisig
+            ${{ steps.build_iso.outputs.mono_image_usb }}
+            ${{ steps.build_iso.outputs.mono_image_usb }}.minisig
+          retention-days: 15
+          if-no-files-found: error
+          compression-level: 0
   publish:
     needs:
       - build_iso

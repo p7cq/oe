@@ -331,22 +331,6 @@ jobs:
     # if: github.ref_name == "${{ github.event.repository.default_branch }}"
     if: github.ref_name == 'master'
     steps:
-      - name: Signing
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.WF_SIGNING_KEY }}" > ~/.ssh/id_wf_sign
-          chmod 600 ~/.ssh/id_wf_sign
-          PUBLIC_KEY=$(ssh-keygen -y -f ~/.ssh/id_wf_sign)
-          echo $PUBLIC_KEY
-
-          git config --global user.name "${{ github.actor }}"
-          git config --global user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
-          git config --global user.signingkey "$PUBLIC_KEY"
-          git config --global gpg.format ssh
-          git config --global gpg.ssh.program ssh-keygen
-          git config --global commit.gpgsign true
-          echo "$(git config user.email) $(ssh-keygen -y -f ~/.ssh/id_wf_sign) $PUBLIC_KEY" > ~/.ssh/allowed_signers
-          git config --global gpg.ssh.allowedSignersFile ~/.ssh/allowed_signers
       - uses: actions/checkout@v6
       - name: Clone vyos-build repo
         uses: actions/checkout@v6
@@ -446,11 +430,7 @@ jobs:
         with:
           tagging_message: ${{ needs.build_iso.outputs.build_version }}
           commit_message: ${{ needs.build_iso.outputs.build_version }}
-          # commit_author: "github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
-          commit_user_name: "${{ github.actor }}"
-          commit_user_email: "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
-          commit_author: "${{ github.actor }} <${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com>"
-          commit_options: '--no-verify -S'
+          commit_author: "github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
 
       - uses: actions/download-artifact@v8
         with:

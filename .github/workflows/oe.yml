@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       BUILD_BY:
-        description: ${{ github.actor }}
+        description: "${{ github.actor }}"
         default: ''
       build_version:
         description: 'Version number (default: YYYY.MM.DD-TIMESTAMP-rolling)'

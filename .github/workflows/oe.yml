@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       BUILD_BY:
-        description: {{ github.actor }}
+        description: ${{ github.actor }}
         default: ''
       build_version:
         description: 'Version number (default: YYYY.MM.DD-TIMESTAMP-rolling)'
@@ -447,9 +447,10 @@ jobs:
           tagging_message: ${{ needs.build_iso.outputs.build_version }}
           commit_message: ${{ needs.build_iso.outputs.build_version }}
           # commit_author: "github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
-          commit_user_name: "{{ github.actor }}"
-          commit_user_email: "{{ github.actor_id }}+{{ github.actor }}@users.noreply.github.com"
-          commit_author: "{{ github.actor }} <{{ github.actor_id }}+{{ github.actor }}@users.noreply.github.com>"
+          commit_user_name: "${{ github.actor }}"
+          commit_user_email: "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
+          commit_author: "${{ github.actor }} <${{ github.actor_id }}+{{ github.actor }}@users.noreply.github.com>"
+          # commit_options: '--no-verify -S'
 
       - uses: actions/download-artifact@v8
         with:

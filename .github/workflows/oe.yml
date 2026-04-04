@@ -337,8 +337,8 @@ jobs:
           echo "${{ secrets.SSH_SIGNING_KEY }}" > ~/.ssh/id_sign
           chmod 600 ~/.ssh/id_sign
 
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "${{ github.actor }}"
+          git config --global user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
           git config --global user.signingkey ~/.ssh/id_sign
           git config --global gpg.format ssh
           git config --global gpg.ssh.program ssh-keygen

@@ -336,6 +336,8 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.SSH_SIGNING_KEY }}" > ~/.ssh/id_sign
           chmod 600 ~/.ssh/id_sign
+          PUBLIC_KEY=$(ssh-keygen -y -f ~/.ssh/id_sign)
+          echo "$(git config user.email) $(ssh-keygen -y -f ~/.ssh/id_sign) $PUBLIC_KEY" > ~/.ssh/allowed_signers
 
           git config --global user.name "${{ github.actor }}"
           git config --global user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
@@ -343,7 +345,6 @@ jobs:
           git config --global gpg.format ssh
           git config --global gpg.ssh.program ssh-keygen
           git config --global commit.gpgsign true
-          echo "$(git config user.email) $(ssh-keygen -y -f ~/.ssh/id_sign)" > ~/.ssh/allowed_signers
           git config --global gpg.ssh.allowedSignersFile ~/.ssh/allowed_signers
       - uses: actions/checkout@v6
       - name: Clone vyos-build repo

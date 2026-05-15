@@ -1,43 +1,51 @@
 ## vyos-1x
-- VPP: T8495: fix issue with assigning  acl on sub interfaces
-   - PR: vyos/vyos-1x#5129
-- vpp: T8460: Use isolated cpus for VPP cpu-cores
-   - PR: vyos/vyos-1x#5130
-- T8535: Remove next-hop-self for BGP link state
-   - PR: vyos/vyos-1x#5144
-- T8293: Add ability to set timeout for high-availability health-check
-   - PR: vyos/vyos-1x#5151
-- utils: T8541: add write-config-file-value helper
-   - PR: vyos/vyos-1x#5146
-- kea: T8586: Skip static mappings without match criteria
-   - PR: vyos/vyos-1x#5153
-- op-mode: T8305: Fix completion for "show isis neighbor <system-id>" command
-   - PR: vyos/vyos-1x#5143
-- T8531: add Mergify config with commands restrictions
-   - PR: vyos/vyos-1x#5145
-- bgp: T8589: Add ead, es and [1-5] to route-map match evpn route-type
-   - PR: vyos/vyos-1x#5150
-- T8587: fix XML data type from u32 to u64 where range exceeds uint32 max
-   - PR: vyos/vyos-1x#5148
-- T8539: Unable to traceroute using hostname and ipv6 source address
-   - PR: vyos/vyos-1x#5140
-- T6750: sr-te: Adding initial Segment Routing Traffic Engineering portion of FRR
-   - PR: vyos/vyos-1x#4994
-- migration: T8280: Fix auth file read for interfaces on first boot of new image
-   - PR: vyos/vyos-1x#5152
-- dhcp-relay: T7879: verify listen and upstream interfaces exist
-   - PR: vyos/vyos-1x#5161
-- T8218: removed unqueue from mergify yaml as it is not supported
-   - PR: vyos/vyos-1x#5168
-- T8147: Update Linux Kernel to 6.18
-   - PR: vyos/vyos-1x#5159
-- T8467: fix obscured definition of completion help in XML
-   - PR: vyos/vyos-1x#5173
-- T8463: Update GitHub actions to latest versions
-   - PR: vyos/vyos-1x#5172
+- kea: T8763: Fix vendor-encapsulated-options space
+   - PR: vyos/vyos-1x#5170
+- smoketests: T8845: missing base-class call to commit() in tearDownClass()
+   - PR: vyos/vyos-1x#5188
+- bgp: T8607: Add CLI support for BGP update-delay and establish-wait
+   - PR: vyos/vyos-1x#5171
+- T8612: upgrade frr to 10.6.1
+   - PR: vyos/vyos-1x#5184
+- dhcp-relay: T8760: Remove redundant deprecation warning for legacy interface option
+   - PR: vyos/vyos-1x#5162
+- T8488: add support for generating and applying an exclude mask to configtree
+   - PR: vyos/vyos-1x#5127
+- smoketest: T6847: probe for Intel I40E and IAVF Out-Of-Tree drivers
+   - PR: vyos/vyos-1x#5183
+- T8764: add per-repo CodeRabbit config — Jira VD project scope
+   - PR: vyos/vyos-1x#5191
+- T8764: add  to .coderabbit.yaml (follow-up to #5191)
+   - PR: vyos/vyos-1x#5192
+- T8360: add XML preprocessor to allow overriding help element
+   - PR: vyos/vyos-1x#5180
+- ci(mergify): upgrade configuration to current format
+   - PR: vyos/vyos-1x#5176
+- wan: T8481: scope flush-connections to WLB connection marks
+   - PR: vyos/vyos-1x#5163
+- frr: T8606: add watchfrr timeout option
+   - PR: vyos/vyos-1x#5165
+- serial: T8853: limit "kernel" CLI option to ttyS and ttyAMA interfaces only
+   - PR: vyos/vyos-1x#5193
+- T8600: Add option to change logging verbosity in Kea
+   - PR: vyos/vyos-1x#5178
+- bgp: T8588: Add match src-peer to policy route-map
+   - PR: vyos/vyos-1x#5149
+- dhcp: T8848: Fix timezone pcode data
+   - PR: vyos/vyos-1x#5189
+- T8852: migrate .github/mergify.yml to extends: mergify
+   - PR: vyos/vyos-1x#5196
+- T8824: Add XML properties collision check to build
+   - PR: vyos/vyos-1x#5181
+- T8831: smoketests: irregular PermissionError caused by systemctl stop
+   - PR: vyos/vyos-1x#5182
+- dhcpv6: T8849: Add time-zone support for Kea DHCPv6
+   - PR: vyos/vyos-1x#5190
 
 
 ## vyos-build
+- image: T8375: honor already existing boot_settings
+   - PR: vyos/vyos-build#1163
 - linux-kernel: T8496: Add kernel config needed for PWRU
    - PR: vyos/vyos-build#1170
 - hooks: T8541: inject flavor serial console settings once into config.boot.default
@@ -62,5 +70,27 @@
    - PR: vyos/vyos-build#1180
 - T8463: Update GitHub actions to latest versions
    - PR: vyos/vyos-build#1179
+- general: T8595: add AGENTS.md
+   - PR: vyos/vyos-build#1181
+- Kernel: T8828: Update Linux Kernel to 6.18.28
+   - PR: vyos/vyos-build#1184
+- Kernel: T8846: Update Linux Kernel to 6.18.29
+   - PR: vyos/vyos-build#1187
+- T8612: upgrade to frr 10.6.1
+   - PR: vyos/vyos-build#1183
+- Kernel: T6847: update Intel Out-Of-Tree drivers for IGB, IXGBE, I40e, ICE and IAVF
+   - PR: vyos/vyos-build#1185
+- T8542: Add functionality to generate SBOM file from ISO image
+   - PR: vyos/vyos-build#1164
+- serial: T8844: fix default config injection leading to invalid boot console
+   - PR: vyos/vyos-build#1186
+- kernel: T8847: Enable PSI metric data
+   - PR: vyos/vyos-build#1178
+- ci(mergify): upgrade configuration to current format
+   - PR: vyos/vyos-build#1182
+- Kernel: T8864: add patch for "fragnesia" local privilege escalation
+   - PR: vyos/vyos-build#1190
+- T8852: migrate .github/mergify.yml to extends: mergify
+   - PR: vyos/vyos-build#1188
 
 
